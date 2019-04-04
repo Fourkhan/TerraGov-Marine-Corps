@@ -37,7 +37,7 @@
 	var/use_beaker = 0            // Attempt to use reagents in beaker
 	var/declare_treatment = 0     // Ping medical as we treat patients?
 	var/shut_up = 0               // self explanatory :)
-	var/last_newpatient_speak = 0 //Don't spam the "HEY I'M COMING" messages
+	var/last_newpatient_speak = 0 // Don't spam the "HEY I'M COMING" messages
 	
 	// Medibot will check its container for these before 
 	// reverting to its internal synthesizer (tricord)
@@ -49,19 +49,6 @@
 	var/treatment_virus = "spaceacillin"
 	var/treatment_general = "tricordrazine"
 	
-
-/obj/machinery/bot/medbot/mysterious
-	name = "Mysterious Medibot"
-	desc = "International Medibot of mystery."
-	skin = "bezerk"
-	treatment_oxy = "dexalinplus"
-	treatment_brute = "bicaridine"
-	treatment_fire = "kelotane"
-	treatment_tox = "dylovene"
-
-
-
-
 /obj/machinery/bot/medbot/Initialize()
 	. = ..()
 	src.icon_state = "medibot[src.on]"
@@ -329,22 +316,22 @@
 
 	return
 
+
+/*
+ *   Decide if the current patient needs medical attention
+ */ 
 /obj/machinery/bot/medbot/proc/assess_patient(mob/living/carbon/C as mob)
-	//Time to see if they need medical help!
+	
 	if(C.stat == 2)
-		return 0 //welp too late for them!
+		return 0 // welp too late for them!
 
 	if(C.suiciding)
-		return 0 //Kevorkian school of robotic medical assistants.
+		return 0 // Kevorkian school of robotic medical assistants.
 
-	if(src.emagged == 2) //Everyone needs our medicine. (Our medicine is toxins)
+	if(src.emagged == 2) // Everyone needs our medicine. (Our medicine is toxins)
 		return 1
 
-	if(safety_checks)
-		if(C.reagents.total_volume > 0)
-			for(var/datum/reagent/R in C.reagents.reagent_list)
-				if((src.injection_amount + R.volume) >= R.overdose_threshold)
-					return 0 //Don't medicate if it will kill them --MadSnailDisease
+	
 
 	//If they're injured, we're using a beaker, and don't have one of our WONDERCHEMS.
 	if((src.reagent_glass) && (src.use_beaker) && ((C.getBruteLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getOxyLoss() >= (heal_threshold + 15))))
@@ -375,10 +362,16 @@
 
 	return 0
 
+/*
+ *  Medicate the patient
+ */
 /obj/machinery/bot/medbot/proc/medicate_patient(mob/living/carbon/C as mob)
+	
+	// Hello? Is this thing on?
 	if(!src.on)
 		return
 
+	// Ignore nonbiologicals 
 	if(!istype(C))
 		src.oldpatient = src.patient
 		src.patient = null
@@ -386,6 +379,7 @@
 		src.last_found = world.time
 		return
 
+	// Ignore dead patients
 	if(C.stat == 2)
 		var/death_message = pick("No! NO!","Live, damnit! LIVE!","I...I've never lost a patient before. Not today, I mean.")
 		src.speak(death_message)
@@ -504,15 +498,31 @@
 		src.frustration = 0
 	return
 
-/* terrible
-/obj/machinery/bot/medbot/Bumped(atom/movable/M as mob|obj)
-	spawn(0)
-		if (M)
-			var/turf/T = get_turf(src)
-			M:loc = T
-*/
+/* 
+ *  Check if the given patient will be OD'd if the given drug is administered.
+ *  To use the bot's default injection amount, pass in NULL, otherwise will 
+ *  be calculated using the passed value. -4/4/2019
+ *  
+ *  Deprecates this code: 
+ *  if(safety_checks)
+ *		if(C.reagents.total_volume > 0)
+ *			for(var/datum/reagent/R in C.reagents.reagent_list)
+ *				if((src.injection_amount + R.volume) >= R.overdose_threshold)
+ *					return 0 //Don't medicate if it will kill them --MadSnailDisease 
+ */
+ /obj/machinery/bot/medbot/isInjectionSafe(mob/living/Carbon/C, var/datum/reagent/R, var/amountToInject)
+ 
+ 	// If we're not checking for safety, unconditionally return true 
+ 	if (!src.safety_checks)
+ 		return 1
 
-
+ 	// Specify default injection value
+ 	// This is primarily for things like dex+, which require a custom injection value to work well in medibots
+ 	if (!amountToInject)
+ 		amountToInject = src.injection_amount
+ 	
+ 	// If total resultant drugs >= OD volume, return false 
+ 	return !(amountToInject + R.volume >= R.overdose_threshold)
 
 /*
  *	Medbot Assembly -- Can be made out of all three medkits.
