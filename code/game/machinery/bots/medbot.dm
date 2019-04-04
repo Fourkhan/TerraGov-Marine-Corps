@@ -5,39 +5,50 @@
 
 /obj/machinery/bot/medbot
 	name = "Medibot"
-	desc = "A little medical robot. He looks somewhat underwhelmed."
+	desc = "A little medical robot. It looks somewhat underwhelmed."
 	icon = 'icons/obj/aibots.dmi'
 	icon_state = "medibot0"
 	density = 0
 	anchored = 0
 	health = 20
 	maxhealth = 20
-	req_access =list(ACCESS_MARINE_MEDBAY)
-	var/stunned = 0 //It can be stunned by tasers. Delicate circuits.
-//var/emagged = 0
+	req_access = list(ACCESS_MARINE_MEDBAY)
+	var/stunned = 0   // It can be stunned by tasers. Delicate circuits.
+	//var/emagged = 0 // Not currently implemented on TGMC
 	var/list/botcard_access = list(ACCESS_MARINE_MEDBAY)
 	var/obj/item/reagent_container/glass/reagent_glass = null //Can be set to draw from this for reagents.
-	var/skin = null //Set to "tox", "ointment" or "o2" for the other two firstaid kits.
-	var/frustration = 0
+	var/skin = null     //Set to "tox", "ointment" or "o2" for the other two firstaid kits.
 	var/path[] = new()
-	var/mob/living/carbon/patient = null
-	var/mob/living/carbon/oldpatient = null
 	var/oldloc = null
-	var/last_found = 0
+	
+	// BOT STATE 
+
+	var/frustration = 0           // Used to (relatively) keep the bot in one place 
+	var/currently_healing = 0     // Whether the bot is currently medicating a patient
+	var/last_found = 0            // Last worldtime we found a patient 
+	var/mob/living/carbon/patient = null       // Current patient
+	var/mob/living/carbon/oldpatient = null    // Last patient 
+
+	// BOT BEHAVIOR 
+	
+	var/safety_checks = 1         // Checks if injection will OD before performing
+	var/injection_amount = 15     // Amount injected by treatment routine
+	var/heal_threshold = 10       // Minimum damage to administer treatment
+	var/use_beaker = 0            // Attempt to use reagents in beaker
+	var/declare_treatment = 0     // Ping medical as we treat patients?
+	var/shut_up = 0               // self explanatory :)
 	var/last_newpatient_speak = 0 //Don't spam the "HEY I'M COMING" messages
-	var/currently_healing = 0
-	var/safety_checks = 1
-	var/injection_amount = 15 //How much reagent do we inject at a time?
-	var/heal_threshold = 10 //Start healing when they have this much damage in a category
-	var/use_beaker = 0 //Use reagents in beaker instead of default treatment agents.
-	//Setting which reagents to use to treat what by default. By id.
-	var/treatment_brute = "tricordrazine"
-	var/treatment_oxy = "tricordrazine"
-	var/treatment_fire = "tricordrazine"
-	var/treatment_tox = "tricordrazine"
+	
+	// Medibot will check its container for these before 
+	// reverting to its internal synthesizer (tricord)
+	// Of course, these are all 
+	var/treatment_brute = "bicardidine"
+	var/treatment_oxy = "dexalin"
+	var/treatment_fire = "kelotane"
+	var/treatment_tox = "dylovene"
 	var/treatment_virus = "spaceacillin"
-	var/declare_treatment = 0 //When attempting to treat a patient, should it notify everyone wearing medhuds?
-	var/shut_up = 0 //self explanatory :)
+	var/treatment_general = "tricordrazine"
+	
 
 /obj/machinery/bot/medbot/mysterious
 	name = "Mysterious Medibot"
