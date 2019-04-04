@@ -2,6 +2,11 @@
 //MEDBOT PATHFINDING
 //MEDBOT ASSEMBLY
 
+// TODO: Add calls to check if injections are safe
+// TODO: Build data structure to acct for different meds
+// TODO: Build code to pull reagants from storage
+// TODO: Move all boilerplate -> nextPatient()
+
 
 /obj/machinery/bot/medbot
 	name = "Medibot"
@@ -28,6 +33,7 @@
 	var/last_found = 0            // Last worldtime we found a patient 
 	var/mob/living/carbon/patient = null       // Current patient
 	var/mob/living/carbon/oldpatient = null    // Last patient 
+	/var/list/patient_damagetypes = new/list() // List of patient's damagetypes 
 
 	// BOT BEHAVIOR 
 	
@@ -41,7 +47,6 @@
 	
 	// Medibot will check its container for these before 
 	// reverting to its internal synthesizer (tricord)
-	// Of course, these are all 
 	var/treatment_brute = "bicardidine"
 	var/treatment_oxy = "dexalin"
 	var/treatment_fire = "kelotane"
@@ -245,10 +250,7 @@
 		return
 
 	if(src.frustration > 8)
-		src.oldpatient = src.patient
-		src.patient = null
-		src.currently_healing = 0
-		src.last_found = world.time
+		src.nextPatient()
 		src.path = new()
 
 	if(!src.patient)
@@ -331,14 +333,12 @@
 	if(src.emagged == 2) // Everyone needs our medicine. (Our medicine is toxins)
 		return 1
 
-	
-
 	//If they're injured, we're using a beaker, and don't have one of our WONDERCHEMS.
-	if((src.reagent_glass) && (src.use_beaker) && ((C.getBruteLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getOxyLoss() >= (heal_threshold + 15))))
-		for(var/datum/reagent/R in src.reagent_glass.reagents.reagent_list)
-			if(!C.reagents.has_reagent(R))
-				return 1
-			continue
+//	if((src.reagent_glass) && (src.use_beaker) && ((C.getBruteLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getOxyLoss() >= (heal_threshold + 15))))
+//		for(var/datum/reagent/R in src.reagent_glass.reagents.reagent_list)
+//			if(!C.reagents.has_reagent(R))
+//				return 1
+//			continue
 
 	//They're injured enough for it!
 	if((C.getBruteLoss() >= heal_threshold) && (!C.reagents.has_reagent(src.treatment_brute)))
@@ -353,10 +353,8 @@
 	if((C.getToxLoss() >= heal_threshold) && (!C.reagents.has_reagent(src.treatment_tox)))
 		return 1
 
-
 	for(var/datum/disease/D in C.viruses)
 		if((D.stage > 1) || (D.spread_type == AIRBORNE))
-
 			if (!C.reagents.has_reagent(src.treatment_virus))
 				return 1 //STOP DISEASE FOREVER
 
@@ -373,25 +371,17 @@
 
 	// Ignore nonbiologicals 
 	if(!istype(C))
-		src.oldpatient = src.patient
-		src.patient = null
-		src.currently_healing = 0
-		src.last_found = world.time
-		return
+		src.nextPatient()
 
 	// Ignore dead patients
 	if(C.stat == 2)
-		var/death_message = pick("No! NO!","Live, damnit! LIVE!","I...I've never lost a patient before. Not today, I mean.")
-		src.speak(death_message)
-		src.oldpatient = src.patient
-		src.patient = null
-		src.currently_healing = 0
-		src.last_found = world.time
+		src.speak(pick("No! NO!","Live, damnit! LIVE!","I...I've never lost a patient before. Not today, I mean."))
+		src.nextPatient()
 		return
 
 	var/reagent_id = null
 
-	//Use whatever is inside the loaded beaker. If there is one.
+	// Use whatever is inside the loaded beaker. If there is one.
 	if(use_beaker && reagent_glass && reagent_glass.reagents.total_volume)
 		var/safety_fail = 0
 		for(var/datum/reagent/R in reagent_glass.reagents.reagent_list)
@@ -429,12 +419,9 @@
 			reagent_id = src.treatment_tox
 
 	if(!reagent_id) //If they don't need any of that they're probably cured!
-		src.oldpatient = src.patient
-		src.patient = null
-		src.currently_healing = 0
-		src.last_found = world.time
 		var/message = pick("All patched up!","An apple a day keeps me away.","Feel better soon!")
 		src.speak(message)
+		src.nextPatient()
 		return
 	else
 		src.icon_state = "medibots"
@@ -523,6 +510,16 @@
  	
  	// If total resultant drugs >= OD volume, return false 
  	return !(amountToInject + R.volume >= R.overdose_threshold)
+
+/*
+ *  Helper proc for a lot of boilerplate 
+ */
+/obj/machinery/bot/medbot/nextPatient()
+	src.oldpatient = src.patient
+	src.patient = null
+	src.currently_healing = 0
+	src.last_found = world.time
+	return
 
 /*
  *	Medbot Assembly -- Can be made out of all three medkits.
