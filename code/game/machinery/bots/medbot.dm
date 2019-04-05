@@ -50,12 +50,12 @@
 	var/list/damagetypes = {"brute","burn","oxy","tox","virus"}
 	
 	// List of medicines by preference (will check beaker, then synthesizer)
-	var/list/medicine_directory = var/list()
-	medicine_directory["brute"] = {datum/reagant/medicine/bicardidine, datum/reagant/medicine/tricordrazine}
-	medicine_directory["burn"] = {datum/reagant/medicine/dermaline, datum/reagant/medicine/kelotane,datum/reagant/medicine/tricordrazine}
-	medicine_directory["oxy"] = {datum/reagant/medicine/dexalinplus, datum/reagant/medicine/dexalin, datum/reagant/medicine/tricordrazine}
-	medicine_directory["tox"] = {datum/reagant/medicine/dylovene, datum/reagant/medicine/tricordrazine}
-	medicine_directory["virus"] = {datum/reagant/medicine/spaceacillin}
+	var/list/medicine_directory = list()
+	medicine_directory["brute"] = {"bicardidine","tricordrazine"}
+	medicine_directory["burn"] = list("dermaline", "kelotane", "tricordrazine")
+	medicine_directory["oxy"] = list("dexalinplus", "dexalin", "tricordrazine")
+	medicine_directory["tox"] = list("dylovene", "tricordrazine")
+	medicine_directory["virus"] = list("spaceacillin")
 
 	// Medicines that can be produced by the medibot's internal synthesizer 
 	var/list/can_synthesize = {"tricordrazine, spaceacillin"}
@@ -348,7 +348,7 @@
 	// Can't loop this because whoever wrote the damage codebase 
 	// put them all in separate functions instead of 
 	// C.getDamageOfType("brute")
-	for (/var/damagetype in damagetypes) 
+	for (var/damagetype in damagetypes) 
 		patient_damagetypes[damagetype] = 0
 	patient_damagetypes["brute"] = C.getBruteLoss()
 	patient_damagetypes["burn"] = C.getBurnLoss()
@@ -391,15 +391,15 @@
 		return
 
 	var/reagentToInject = null
-	var/toInject = null
+	var/amountToInject = null
 	var/beakerContentsValid = 0
 
 	// Treatment: loop through each damagetype and decide on treatment 
 	for (var/damagetype in damagetypes)
-		if ((patient_damagetypes[damagetype] >= heal_threshold)||(damagetype = "virus" && patient_damagetypes[damagetype])
+		if ((patient_damagetypes[damagetype] >= heal_threshold)||(damagetype == "virus" && patient_damagetypes[damagetype]))
 			// Subroutine that checks if patient has already been treated 
 			for (var/medicine in medicine_directory[damagetype])
-				if (C.reagent_list.Find(medicine.id))
+				if (C.reagent_list.Find(medicine))
 					break
 					break 
 
@@ -408,7 +408,7 @@
 
 				// Here's the main bit: check if we have sufficient beaker contents 
 				// If we have ANY of a med, draw from internal container 
-				if (use_beaker && reagent_glass && reagents_glass.reagents.total_volume&&src.reagent_glass.reagents.has_reagent(medicine.id))
+				if (use_beaker && reagent_glass && reagents_glass.reagents.total_volume && src.reagent_glass.reagents.has_reagent(medicine))
 					reagentToInject = medicine
 					beakerContentsValid = 1
 					break
@@ -424,19 +424,19 @@
 
 			// Set our injection amounts
 			// Special snowflake code for dex+
-			if (reagant.id != "dexalinplus")
-					amountToInject = injection_amount
+			if (reagentToInject != "dexalinplus")
+				amountToInject = injection_amount
 			else 
-					amountToInject = 5
+				amountToInject = 5
 
 			// OD check 
-			if (isInjectionSafe(C, medicine, amountToInject))
+			if (isInjectionSafe(C, reagentToInject, amountToInject))
 				
 				// Unconditionally inject toxin
 				if (emagged == 2)
 					beakerContentsValid = 0
 					amountToInject = 15
-					reagantToInject = datum/reagent/toxin
+					reagentToInject = "toxin"
 
 				src.icon_state = "medibots"
 					visible_message("<span class='danger'>[src] is trying to inject [src.patient]!</span>")
@@ -445,12 +445,12 @@
 						if ((get_dist(src, patient) <= 1) && (on))
 							// Use our beaker if we can 
 							if(beakerContentsValid)
-								reagent_glass.reagents.trans_id_to(patient, reagantToInject.id, amountToInject)
+								reagent_glass.reagents.trans_id_to(patient, reagentToInject, amountToInject)
 								reagent_glass.reagents.reaction(patient, 2)
 							
 							// "Internal synthesizers"
-							else
-								patient.reagents.add_reagent(reagantToAdd.id, amountToInject)
+							else if (can_synthesize.Find(reagentToInject))
+								patient.reagents.add_reagent(reagentToAdd, amountToInject)
 							
 							visible_message("<span class='danger'>[src] injects [src.patient] with the syringe!</span>")
 
@@ -458,10 +458,9 @@
 			src.currently_healing = 0
 		
 			// Cleanups 
-			ASSERT(medicine)
 			ASSERT(amountToInject)
 			ASSERT(reagentToInject)
-			reagantToInject = null
+			reagentToInject = null
 			amountToInject = null
 			beakerContentsValid = 0
 
@@ -514,19 +513,18 @@
 		src.frustration = 0
 	return
 
-/* 
- *  Check if the given patient will be OD'd if the given drug is administered.
- *  To use the bot's default injection amount, pass in NULL, otherwise will 
- *  be calculated using the passed value. -4/4/2019 
- */
- /obj/machinery/bot/medbot/isInjectionSafe(mob/living/Carbon/C, var/reagant, var/amountToInject)
  
- 	// If we're not checking for safety, unconditionally return true 
+//  Check if the given patient will be OD'd if the given drug is administered.
+//  To use the bot's default injection amount, pass in NULL, otherwise will 
+//  be calculated using the passed value. -4/4/2019 
+/obj/machinery/bot/medbot/isInjectionSafe(mob/living/Carbon/C, var/reagent, var/injectAmnt)
+
+	// If we're not checking for safety, unconditionally return true 
  	if (!src.safety_checks)
- 		return 1
+		return 1
  	
  	// If total resultant drugs >= OD volume, return false 
- 	return !(amountToInject + C.reagent_list. >= R.overdose_threshold)
+ 	return
 
 /*
  *  Helper proc for a lot of boilerplate 
