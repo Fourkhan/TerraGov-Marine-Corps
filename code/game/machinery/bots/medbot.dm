@@ -33,27 +33,34 @@
 	var/last_found = 0            // Last worldtime we found a patient 
 	var/mob/living/carbon/patient = null       // Current patient
 	var/mob/living/carbon/oldpatient = null    // Last patient 
-	/var/list/patient_damagetypes = new/list() // List of patient's damagetypes 
+	var/list/patient_damagetypes = list() // List of patient's damagetypes 
 
 	// BOT BEHAVIOR 
 	
 	var/safety_checks = 1         // Checks if injection will OD before performing
 	var/injection_amount = 15     // Amount injected by treatment routine
-	var/heal_threshold = 10       // Minimum damage to administer treatment
+	var/heal_threshold = 20       // Minimum damage to administer treatment
 	var/use_beaker = 0            // Attempt to use reagents in beaker
 	var/declare_treatment = 0     // Ping medical as we treat patients?
 	var/shut_up = 0               // self explanatory :)
 	var/last_newpatient_speak = 0 // Don't spam the "HEY I'M COMING" messages
+
+	// List of possible damagetypes
+	// Virus is included for compatibility
+	var/list/damagetypes = {"brute","burn","oxy","tox","virus"}
 	
-	// Medibot will check its container for these before 
-	// reverting to its internal synthesizer (tricord)
-	var/treatment_brute = "bicardidine"
-	var/treatment_oxy = "dexalin"
-	var/treatment_fire = "kelotane"
-	var/treatment_tox = "dylovene"
-	var/treatment_virus = "spaceacillin"
-	var/treatment_general = "tricordrazine"
-	
+	// List of medicines by preference (will check beaker, then synthesizer)
+	var/list/medicine_directory = var/list()
+	medicine_directory["brute"] = {datum/reagant/medicine/bicardidine, datum/reagant/medicine/tricordrazine}
+	medicine_directory["burn"] = {datum/reagant/medicine/dermaline, datum/reagant/medicine/kelotane,datum/reagant/medicine/tricordrazine}
+	medicine_directory["oxy"] = {datum/reagant/medicine/dexalinplus, datum/reagant/medicine/dexalin, datum/reagant/medicine/tricordrazine}
+	medicine_directory["tox"] = {datum/reagant/medicine/dylovene, datum/reagant/medicine/tricordrazine}
+	medicine_directory["virus"] = {datum/reagant/medicine/spaceacillin}
+
+	// Medicines that can be produced by the medibot's internal synthesizer 
+	var/list/can_synthesize = {"tricordrazine, spaceacillin"}
+
+
 /obj/machinery/bot/medbot/Initialize()
 	. = ..()
 	src.icon_state = "medibot[src.on]"
@@ -274,9 +281,9 @@
 					src.speak(message)
 					src.visible_message("<b>[src]</b> points at [C.name]!")
 					src.last_newpatient_speak = world.time
-//					if(declare_treatment)
-//						var/area/location = get_area(src)
-//						broadcast_medical_hud_message("[src.name] is treating <b>[C]</b> in <b>[location]</b>", src)
+					//if(declare_treatment)
+					//	var/area/location = get_area(src)
+					//	broadcast_medical_hud_message("[src.name] is treating <b>[C]</b> in <b>[location]</b>", src)
 				break
 			else
 				continue
@@ -324,44 +331,47 @@
  */ 
 /obj/machinery/bot/medbot/proc/assess_patient(mob/living/carbon/C as mob)
 	
+	// welp too late for them!
 	if(C.stat == 2)
-		return 0 // welp too late for them!
+		return 0 
 
+	// Kevorkian school of robotic medical assistants.
 	if(C.suiciding)
-		return 0 // Kevorkian school of robotic medical assistants.
+		return 0 
 
-	if(src.emagged == 2) // Everyone needs our medicine. (Our medicine is toxins)
+	// Everyone needs our medicine. (Our medicine is toxins)
+	if(emagged == 2) 
 		return 1
 
-	//If they're injured, we're using a beaker, and don't have one of our WONDERCHEMS.
-//	if((src.reagent_glass) && (src.use_beaker) && ((C.getBruteLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getToxLoss() >= heal_threshold) || (C.getOxyLoss() >= (heal_threshold + 15))))
-//		for(var/datum/reagent/R in src.reagent_glass.reagents.reagent_list)
-//			if(!C.reagents.has_reagent(R))
-//				return 1
-//			continue
-
-	//They're injured enough for it!
-	if((C.getBruteLoss() >= heal_threshold) && (!C.reagents.has_reagent(src.treatment_brute)))
-		return 1 //If they're already medicated don't bother!
-
-	if((C.getOxyLoss() >= (15 + heal_threshold)) && (!C.reagents.has_reagent(src.treatment_oxy)))
-		return 1
-
-	if((C.getFireLoss() >= heal_threshold) && (!C.reagents.has_reagent(src.treatment_fire)))
-		return 1
-
-	if((C.getToxLoss() >= heal_threshold) && (!C.reagents.has_reagent(src.treatment_tox)))
-		return 1
-
+	// Assign values into damagetype array
+	// Virus code is taken from original medibot  
+	// Can't loop this because whoever wrote the damage codebase 
+	// put them all in separate functions instead of 
+	// C.getDamageOfType("brute")
+	for (/var/damagetype in damagetypes) 
+		patient_damagetypes[damagetype] = 0
+	patient_damagetypes["brute"] = C.getBruteLoss()
+	patient_damagetypes["burn"] = C.getBurnLoss()
+	patient_damagetypes["oxy"] = C.getOxyLoss()
+	patient_damagetypes["tox"] = C.getToxLoss()
 	for(var/datum/disease/D in C.viruses)
 		if((D.stage > 1) || (D.spread_type == AIRBORNE))
-			if (!C.reagents.has_reagent(src.treatment_virus))
-				return 1 //STOP DISEASE FOREVER
+			patient_damagetypes["virus"] = 1;
+
+	// If any damagetype >= 20, administer medication
+	for (var/damageAmount in patient_damagetypes)
+		if (damageAmount >= heal_threshold)
+			return 1
+	
+	// Special case for virus infection
+	if (patient_damagetypes["virus"])
+		return 1
 
 	return 0
 
 /*
  *  Medicate the patient
+ *  This proc gets called AFTER we've decided on treatment 
  */
 /obj/machinery/bot/medbot/proc/medicate_patient(mob/living/carbon/C as mob)
 	
@@ -372,6 +382,7 @@
 	// Ignore nonbiologicals 
 	if(!istype(C))
 		src.nextPatient()
+		return
 
 	// Ignore dead patients
 	if(C.stat == 2)
@@ -379,69 +390,87 @@
 		src.nextPatient()
 		return
 
-	var/reagent_id = null
+	var/reagentToInject = null
+	var/toInject = null
+	var/beakerContentsValid = 0
 
-	// Use whatever is inside the loaded beaker. If there is one.
-	if(use_beaker && reagent_glass && reagent_glass.reagents.total_volume)
-		var/safety_fail = 0
-		for(var/datum/reagent/R in reagent_glass.reagents.reagent_list)
-			if(!C.reagents.has_reagent(R))
-				safety_fail = 1
-				break
-		if(!safety_fail)
-			reagent_id = "internal_beaker"
+	// Treatment: loop through each damagetype and decide on treatment 
+	for (var/damagetype in damagetypes)
+		if ((patient_damagetypes[damagetype] >= heal_threshold)||(damagetype = "virus" && patient_damagetypes[damagetype])
+			// Subroutine that checks if patient has already been treated 
+			for (var/medicine in medicine_directory[damagetype])
+				if (C.reagent_list.Find(medicine.id))
+					break
+					break 
 
-	if(emagged == 2) //Emagged! Time to poison everybody.
-		reagent_id = "toxin"
+			// Get med (this includes choosing the correct med in the beaker)
+			for (var/medicine in medicine_directory[damagetype])
 
-	var/virus = 0
-	for(var/datum/disease/D in C.viruses)
-		virus = 1
+				// Here's the main bit: check if we have sufficient beaker contents 
+				// If we have ANY of a med, draw from internal container 
+				if (use_beaker && reagent_glass && reagents_glass.reagents.total_volume&&src.reagent_glass.reagents.has_reagent(medicine.id))
+					reagentToInject = medicine
+					beakerContentsValid = 1
+					break
+					
+					// Fallback medicine types. If we hit these we can break because we 
+					// know we're gonna use our internal synthesizer, AKA space magic 
+				else if (medicine == "tricordrazine")
+					reagentToInject = medicine
+					break
+				else if (medicine == "spaceacillin")
+					reagentToInject = medicine
+					break
 
-	if (!reagent_id && (virus))
-		if(!C.reagents.has_reagent(src.treatment_virus))
-			reagent_id = src.treatment_virus
+			// Set our injection amounts
+			// Special snowflake code for dex+
+			if (reagant.id != "dexalinplus")
+					amountToInject = injection_amount
+			else 
+					amountToInject = 5
 
-	if (!reagent_id && (C.getBruteLoss() >= heal_threshold))
-		if(!C.reagents.has_reagent(src.treatment_brute))
-			reagent_id = src.treatment_brute
+			// OD check 
+			if (isInjectionSafe(C, medicine, amountToInject))
+				
+				// Unconditionally inject toxin
+				if (emagged == 2)
+					beakerContentsValid = 0
+					amountToInject = 15
+					reagantToInject = datum/reagent/toxin
 
-	if (!reagent_id && (C.getOxyLoss() >= (15 + heal_threshold)))
-		if(!C.reagents.has_reagent(src.treatment_oxy))
-			reagent_id = src.treatment_oxy
-
-	if (!reagent_id && (C.getFireLoss() >= heal_threshold))
-		if(!C.reagents.has_reagent(src.treatment_fire))
-			reagent_id = src.treatment_fire
-
-	if (!reagent_id && (C.getToxLoss() >= heal_threshold))
-		if(!C.reagents.has_reagent(src.treatment_tox))
-			reagent_id = src.treatment_tox
-
-	if(!reagent_id) //If they don't need any of that they're probably cured!
-		var/message = pick("All patched up!","An apple a day keeps me away.","Feel better soon!")
-		src.speak(message)
-		src.nextPatient()
-		return
-	else
-		src.icon_state = "medibots"
-		visible_message("<span class='danger'>[src] is trying to inject [src.patient]!</span>")
-		spawn(30)
-			if ((get_dist(src, src.patient) <= 1) && (src.on))
-				if(reagent_id == "internal_beaker" && reagent_glass && reagent_glass.reagents.total_volume)
-					src.reagent_glass.reagents.trans_to(src.patient,src.injection_amount) //Inject from beaker instead.
-					src.reagent_glass.reagents.reaction(src.patient, 2)
-				else
-					src.patient.reagents.add_reagent(reagent_id,src.injection_amount)
-				visible_message("<span class='danger'>[src] injects [src.patient] with the syringe!</span>")
+				src.icon_state = "medibots"
+					visible_message("<span class='danger'>[src] is trying to inject [src.patient]!</span>")
+					spawn(30)
+						
+						if ((get_dist(src, patient) <= 1) && (on))
+							// Use our beaker if we can 
+							if(beakerContentsValid)
+								reagent_glass.reagents.trans_id_to(patient, reagantToInject.id, amountToInject)
+								reagent_glass.reagents.reaction(patient, 2)
+							
+							// "Internal synthesizers"
+							else
+								patient.reagents.add_reagent(reagantToAdd.id, amountToInject)
+							
+							visible_message("<span class='danger'>[src] injects [src.patient] with the syringe!</span>")
 
 			src.icon_state = "medibot[src.on]"
 			src.currently_healing = 0
-			return
+		
+			// Cleanups 
+			ASSERT(medicine)
+			ASSERT(amountToInject)
+			ASSERT(reagentToInject)
+			reagantToInject = null
+			amountToInject = null
+			beakerContentsValid = 0
 
-//	src.speak(reagent_id)
-	reagent_id = null
+	// Chirp to let the patient know they're good to go
+	src.speak("All patched up!")
+	src.speak(pick("An apple a day keeps me away.","Feel better soon!"))
+	src.nextPatient()
 	return
+	
 
 
 /obj/machinery/bot/medbot/proc/speak(var/message)
@@ -488,28 +517,16 @@
 /* 
  *  Check if the given patient will be OD'd if the given drug is administered.
  *  To use the bot's default injection amount, pass in NULL, otherwise will 
- *  be calculated using the passed value. -4/4/2019
- *  
- *  Deprecates this code: 
- *  if(safety_checks)
- *		if(C.reagents.total_volume > 0)
- *			for(var/datum/reagent/R in C.reagents.reagent_list)
- *				if((src.injection_amount + R.volume) >= R.overdose_threshold)
- *					return 0 //Don't medicate if it will kill them --MadSnailDisease 
+ *  be calculated using the passed value. -4/4/2019 
  */
- /obj/machinery/bot/medbot/isInjectionSafe(mob/living/Carbon/C, var/datum/reagent/R, var/amountToInject)
+ /obj/machinery/bot/medbot/isInjectionSafe(mob/living/Carbon/C, var/reagant, var/amountToInject)
  
  	// If we're not checking for safety, unconditionally return true 
  	if (!src.safety_checks)
  		return 1
-
- 	// Specify default injection value
- 	// This is primarily for things like dex+, which require a custom injection value to work well in medibots
- 	if (!amountToInject)
- 		amountToInject = src.injection_amount
  	
  	// If total resultant drugs >= OD volume, return false 
- 	return !(amountToInject + R.volume >= R.overdose_threshold)
+ 	return !(amountToInject + C.reagent_list. >= R.overdose_threshold)
 
 /*
  *  Helper proc for a lot of boilerplate 
@@ -524,7 +541,6 @@
 /*
  *	Medbot Assembly -- Can be made out of all three medkits.
  */
-
 /obj/item/storage/firstaid/attackby(var/obj/item/robot_parts/S, mob/user as mob)
 
 	if ((!istype(S, /obj/item/robot_parts/l_arm)) && (!istype(S, /obj/item/robot_parts/r_arm)))
